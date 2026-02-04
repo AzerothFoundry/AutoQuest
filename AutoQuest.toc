@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: AutoQuest
+## Author: Cascade
+## Version: 1.0.0
+## Notes: Automatically accepts and turns in quests
+## SavedVariables: 
+
+AutoQuest.lua
