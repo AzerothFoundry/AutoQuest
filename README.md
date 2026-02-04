@@ -16,6 +16,3 @@ A lightweight World of Warcraft 1.12 addon for Turtle WoW that automates quest i
 1. Download the repository.
 2. Extract the `AutoQuest` folder into your `Interface/AddOns` directory.
 3. Ensure the folder name is exactly `AutoQuest`.
-
-## Technical Details
-This addon is designed for the 1.12.1 client used by Turtle WoW and other vanilla servers. It handles both `QUEST_GREETING` and `GOSSIP_SHOW` events to ensure compatibility with all types of NPCs.
