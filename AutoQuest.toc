@@ -1,9 +1,10 @@
 ## Interface: 11200
 ## Title: AutoQuest
 ## Author: Cascade
-## Version: 1.2.0
+## Version: 1.2.1-local
 ## Notes: Automatically accepts and turns in quests. Optional OctoPawn integration for stat-weighted reward choice. Uses stock 1.12 API only; no DLL (ClassicAPI/Nampower/SuperWoW/UnitXP_SP3) dependencies.
 ## OptionalDeps: OctoPawn
-## SavedVariables: 
+## SavedVariables: AutoQuestDB
 
 AutoQuest.lua
+Options.lua

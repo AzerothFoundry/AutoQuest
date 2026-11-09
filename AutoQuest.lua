@@ -1,10 +1,27 @@
+-- Local benilla/stock Lua 5.0 compatibility adaptation; upstream source pinned in SOURCE.md.
+local function AQPrint(text)
+ if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then DEFAULT_CHAT_FRAME:AddMessage(tostring(text)) end
+end
 AutoQuest = {}
 
-AutoQuest.enabled = true
-AutoQuest.acceptEnabled = true
-AutoQuest.turnInEnabled = true
-AutoQuest.autoReward = false
-AutoQuest.pawnReward = false
+local defaults={enabled=true,acceptEnabled=true,turnInEnabled=true,autoReward=false,pawnReward=false}
+local initialized=false
+function AutoQuest.LoadSettings()
+ if type(AutoQuestDB)~="table" then AutoQuestDB={} end
+ for key,value in pairs(defaults) do
+  if type(AutoQuestDB[key])~="boolean" then AutoQuestDB[key]=value end
+  AutoQuest[key]=AutoQuestDB[key]
+ end
+ initialized=true
+ if AutoQuest.RefreshOptions then AutoQuest.RefreshOptions() end
+end
+function AutoQuest.SetOption(key,value)
+ if defaults[key]==nil then return end
+ if not initialized then AutoQuest.LoadSettings() end
+ AutoQuest[key]=value and true or false;AutoQuestDB[key]=AutoQuest[key]
+ if AutoQuest.RefreshOptions then AutoQuest.RefreshOptions() end
+end
+for key,value in pairs(defaults) do AutoQuest[key]=value end
 
 local frame = CreateFrame("Frame", "AutoQuestFrame")
 
@@ -20,11 +37,14 @@ local function RunPendingAction()
 	end
 end
 
-local function Defer(fn)
-	pendingAction = fn
+local function Defer(fn,option)
+ local title=GetTitleText()
+ pendingAction=function()
+  if AutoQuest.enabled and (not option or AutoQuest[option]) and not IsShiftKeyDown() and GetTitleText()==title then fn() end
+ end
 end
 
-frame:SetScript("OnUpdate", RunPendingAction)
+frame:SetScript("OnUpdate", function() RunPendingAction(); if AutoQuest.AttachOptionsButton then AutoQuest.AttachOptionsButton() end end)
 
 local function ResetInteraction()
 	state = nil
@@ -37,16 +57,16 @@ local function AutoAcceptQuest()
 	local title = GetTitleText()
 	local _, numQuests = GetNumQuestLogEntries()
 	if numQuests >= 20 then
-		print("AutoQuest: Quest log is full - \"" .. title .. "\" was not accepted")
+		AQPrint("AutoQuest: Quest log is full - \"" .. title .. "\" was not accepted")
 		return
 	end
 
 	Defer(function()
 		if QuestFrame and QuestFrame:IsShown() then
 			AcceptQuest()
-			print("AutoQuest: Accepted \"" .. title .. "\"")
+			AQPrint("AutoQuest: Accepted \"" .. title .. "\"")
 		end
-	end)
+	end,"acceptEnabled")
 end
 
 local function AutoTurnInQuest()
@@ -57,9 +77,9 @@ local function AutoTurnInQuest()
 		Defer(function()
 			if QuestFrame and QuestFrame:IsShown() then
 				CompleteQuest()
-				print("AutoQuest: Turning in \"" .. title .. "\"")
+				AQPrint("AutoQuest: Turning in \"" .. title .. "\"")
 			end
-		end)
+		end,"turnInEnabled")
 	elseif state == "probing" then
 		probeIndex = probeIndex + 1
 		if QuestFrameGoodbyeButton and QuestFrameGoodbyeButton:IsShown() then
@@ -113,9 +133,9 @@ local function AutoCompleteQuest()
 			Defer(function()
 				if QuestFrame and QuestFrame:IsShown() then
 					GetQuestReward(index)
-					print("AutoQuest: Completed \"" .. title .. "\" (choice " .. index .. " by OP score)")
+					AQPrint("AutoQuest: Completed \"" .. title .. "\" (choice " .. index .. " by OP score)")
 				end
-			end)
+			end,"turnInEnabled")
 			return
 		end
 	end
@@ -124,11 +144,11 @@ local function AutoCompleteQuest()
 		Defer(function()
 			if QuestFrame and QuestFrame:IsShown() then
 				GetQuestReward(1)
-				print("AutoQuest: Completed \"" .. title .. "\"")
+				AQPrint("AutoQuest: Completed \"" .. title .. "\"")
 			end
-		end)
+		end,"turnInEnabled")
 	else
-		print("AutoQuest: \"" .. title .. "\" offers " .. choices .. " rewards - please select one")
+		AQPrint("AutoQuest: \"" .. title .. "\" offers " .. choices .. " rewards - please select one")
 	end
 end
 
@@ -136,14 +156,14 @@ local function OnGossipShow()
 	ResetInteraction()
 
 	if AutoQuest.turnInEnabled then
-		if select("#", GetGossipActiveQuests()) > 0 then
+		if table.getn({GetGossipActiveQuests()}) > 0 then
 			SelectGossipActiveQuest(1)
 			return
 		end
 	end
 
 	if AutoQuest.acceptEnabled then
-		if select("#", GetGossipAvailableQuests()) > 0 then
+		if table.getn({GetGossipAvailableQuests()}) > 0 then
 			SelectGossipAvailableQuest(1)
 			return
 		end
@@ -189,6 +209,10 @@ local function OnQuestGreeting()
 	end
 end
 
+frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("VARIABLES_LOADED")
+frame:RegisterEvent("QUEST_FINISHED")
+frame:RegisterEvent("GOSSIP_CLOSED")
 frame:RegisterEvent("QUEST_GREETING")
 frame:RegisterEvent("QUEST_PROGRESS")
 frame:RegisterEvent("QUEST_COMPLETE")
@@ -196,6 +220,9 @@ frame:RegisterEvent("QUEST_DETAIL")
 frame:RegisterEvent("GOSSIP_SHOW")
 
 frame:SetScript("OnEvent", function()
+ if event=="VARIABLES_LOADED" or (event=="ADDON_LOADED" and arg1=="AutoQuest") then AutoQuest.LoadSettings();return end
+ if not initialized then AutoQuest.LoadSettings() end
+ if event=="QUEST_FINISHED" or event=="GOSSIP_CLOSED" then pendingAction=nil;ResetInteraction();return end
 	if not AutoQuest.enabled or IsShiftKeyDown() then return end
 
 	if event == "GOSSIP_SHOW" then
@@ -216,37 +243,38 @@ SLASH_AUTOQUEST2 = "/aq"
 
 SlashCmdList["AUTOQUEST"] = function(msg)
 	msg = string.lower(msg or "")
-	if msg == "toggle" then
-		AutoQuest.enabled = not AutoQuest.enabled
-		print("AutoQuest: " .. (AutoQuest.enabled and "Enabled" or "Disabled"))
+	if msg=="" or msg=="options" then AutoQuest.ShowOptions();return
+ elseif msg == "toggle" then
+		AutoQuest.SetOption("enabled",not AutoQuest.enabled)
+		AQPrint("AutoQuest: " .. (AutoQuest.enabled and "Enabled" or "Disabled"))
 	elseif msg == "accept" then
-		AutoQuest.acceptEnabled = not AutoQuest.acceptEnabled
-		print("AutoQuest: Auto-accept " .. (AutoQuest.acceptEnabled and "enabled" or "disabled"))
+		AutoQuest.SetOption("acceptEnabled",not AutoQuest.acceptEnabled)
+		AQPrint("AutoQuest: Auto-accept " .. (AutoQuest.acceptEnabled and "enabled" or "disabled"))
 	elseif msg == "turnin" then
-		AutoQuest.turnInEnabled = not AutoQuest.turnInEnabled
-		print("AutoQuest: Auto-turn-in " .. (AutoQuest.turnInEnabled and "enabled" or "disabled"))
+		AutoQuest.SetOption("turnInEnabled",not AutoQuest.turnInEnabled)
+		AQPrint("AutoQuest: Auto-turn-in " .. (AutoQuest.turnInEnabled and "enabled" or "disabled"))
 	elseif msg == "reward" then
-		AutoQuest.autoReward = not AutoQuest.autoReward
-		print("AutoQuest: Auto-pick first reward " .. (AutoQuest.autoReward and "enabled" or "disabled"))
+		AutoQuest.SetOption("autoReward",not AutoQuest.autoReward)
+		AQPrint("AutoQuest: Auto-pick first reward " .. (AutoQuest.autoReward and "enabled" or "disabled"))
 	elseif msg == "pawn" then
-		AutoQuest.pawnReward = not AutoQuest.pawnReward
+		AutoQuest.SetOption("pawnReward",not AutoQuest.pawnReward)
 		if AutoQuest.pawnReward then
 			if type(OctoPawnDB) == "table" and type(OctoPawnDB.weights) == "table" then
-				print("AutoQuest: Pick best reward by OctoPawn stat weights enabled")
+				AQPrint("AutoQuest: Pick best reward by OctoPawn stat weights enabled")
 			else
-				print("AutoQuest: Pick best reward by OctoPawn stat weights enabled (OctoPawn not loaded - will not activate)")
+				AQPrint("AutoQuest: Pick best reward by OctoPawn stat weights enabled (OctoPawn not loaded - will not activate)")
 			end
 		else
-			print("AutoQuest: Pick best reward by OctoPawn stat weights disabled")
+			AQPrint("AutoQuest: Pick best reward by OctoPawn stat weights disabled")
 		end
 	else
-		print("AutoQuest Commands:")
-		print("/aq toggle - Toggle entire addon on/off")
-		print("/aq accept - Toggle auto-accept quests")
-		print("/aq turnin - Toggle auto-turn-in quests")
-		print("/aq reward - Auto-pick first reward when multiple are offered")
-		print("/aq pawn   - Pick best reward using OctoPawn stat weights (if loaded)")
+		AQPrint("AutoQuest Commands:")
+		AQPrint("/aq toggle - Toggle entire addon on/off")
+		AQPrint("/aq accept - Toggle auto-accept quests")
+		AQPrint("/aq turnin - Toggle auto-turn-in quests")
+		AQPrint("/aq reward - Auto-pick first reward when multiple are offered")
+		AQPrint("/aq pawn   - Pick best reward using OctoPawn stat weights (if loaded)")
 	end
 end
 
-print("AutoQuest loaded. Use /aq for commands.")
+AQPrint("AutoQuest loaded. Use /aq for commands.")
